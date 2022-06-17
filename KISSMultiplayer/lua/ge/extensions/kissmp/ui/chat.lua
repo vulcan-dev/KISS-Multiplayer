@@ -8,9 +8,7 @@ local prev_chat_scroll_max = 0
 local message_buffer = imgui.ArrayChar(128)
 
 M.focus_chat = false
-M.chat = {
-  {text = "KissMP chat", has_color = false}
-}
+M.chat = {}
 
 -- Server list update and search
 -- spairs from https://stackoverflow.com/a/15706820
@@ -157,11 +155,13 @@ local function add_message(message, color, sent_by)
     end
   end
   local has_color = color ~= nil and type(color) == 'table'
+  local timestamp = os.date("%H:%M:%S")
   local message_table = {
     text = message,
     has_color = has_color,
     user_color = user_color,
-    user_name = user_name
+    user_name = user_name,
+    timestamp = timestamp
   }
   if has_color then
     message_table.color = color
@@ -170,7 +170,88 @@ local function add_message(message, color, sent_by)
   table.insert(M.chat, message_table)
 end
 
-M.draw = draw
+local function image_button(image, size, tooltip)
+  local image_size = imgui.ImVec2(size, size)
+  local image_pos = imgui.GetCursorScreenPos()
+  local image_rect = imgui.ImRect(image_pos, image_pos + image_size)
+  imgui.SetCursorScreenPos(image_pos + imgui.ImVec2(size, 0))
+  if imgui.ImageButton(image, image_size, imgui.ImVec2(0, 0), imgui.ImVec2(1, 1), 0, imgui.ImVec4(0, 0, 0, 0), imgui.ImVec4(0, 0, 0, 0)) then
+    return true
+  end
+  imgui.SetCursorScreenPos(image_pos)
+  imgui.SetTooltip(tooltip)
+  return false
+end
+
+local function new_draw()
+  imgui.PushStyleVar2(imgui.StyleVar_WindowTitleAlign, imgui.ImVec2(0.5, 0.5))
+  imgui.PushStyleVar2(imgui.StyleVar_WindowMinSize, imgui.ImVec2(300, 300))
+  imgui.PushStyleVar1(imgui.StyleVar_WindowBorderSize, 0)
+  imgui.PushStyleVar1(imgui.StyleVar_WindowRounding, 6)
+
+  if imgui.Begin("##chatbox_window", imgui.BoolPtr(true), imgui.WindowFlags_NoTitleBar + imgui.WindowFlags_NoCollapse) then
+    local window_size = imgui.GetWindowSize()
+    local text_size = imgui.CalcTextSize("Chatbox")
+
+    -- window title
+    imgui.SetCursorPos(imgui.ImVec2(window_size.x / 2 - text_size.x / 2, 0))
+    imgui.Text("Chatbox")
+
+    -- chatbox
+    if imgui.BeginChild1("##chatbox_scroll", imgui.ImVec2(window_size.x - imgui.GetStyle().ItemSpacing.x - 5, window_size.y - 60), false) then
+      for _, message in pairs(M.chat) do
+        imgui.PushTextWrapPos(0)
+        if message.user_name ~= nil then
+          imgui.Text("[%s] %s:", message.timestamp, message.user_name)
+          imgui.SameLine()
+        end
+        if message.has_color then
+          imgui.TextColored(imgui.ImVec4(message.color.r or 1, message.color.g or 1, message.color.b or 1, message.color.a or 1), "%s", message.text)
+        else
+          imgui.Text("%s", message.text)
+        end
+        imgui.PopTextWrapPos()
+      end
+
+      -- Scroll to bottom and clear unreads
+      local scroll_to_bottom = imgui.GetScrollY() >= prev_chat_scroll_max
+      if scroll_to_bottom then
+        imgui.SetScrollY(imgui.GetScrollMaxY())
+        unread_message_count = 0
+      end
+      prev_chat_scroll_max = imgui.GetScrollMaxY()
+      
+      imgui.EndChild()
+    end
+
+    -- input field
+    imgui.Spacing()
+    imgui.PushItemWidth(window_size.x - 10)
+    if M.focus_chat then
+      imgui.SetKeyboardFocusHere(0)
+      M.focus_chat = false
+    end
+
+    -- check if we just pressed left click on the input field, if we did then clear the input field, otherwise copy "Type new message..." to the input field
+    if imgui.InputText("##chatbox_input", message_buffer, 128, imgui.InputTextFlags_EnterReturnsTrue) then
+      imgui.SetKeyboardFocusHere(-1)
+      send_current_chat_message()
+    end
+    imgui.PopItemWidth()
+
+    should_draw_unread_count = true
+
+    imgui.End()
+  end
+
+  imgui.PopStyleVar()
+  imgui.PopStyleVar()
+  imgui.PopStyleVar()
+  imgui.PopStyleVar()
+end
+
+-- M.draw = draw
+M.draw = new_draw
 M.add_message = add_message
 
 return M
