@@ -354,6 +354,10 @@ impl rlua::UserData for MpscChannelSender {}
 pub fn setup_lua(debug_lib: bool) -> (rlua::Lua, mpsc::Receiver<LuaCommand>) {
     let lua;
     if debug_lib {
+        warn!("Loading unsafe Lua debug libraries with rlua can break some safety guarantees that rlua provides while \"break[ing] some sacred truths\" in Lua.\n\
+            See rlua's documentation of Lua::unsafe_new_with(...) here: https://docs.rs/rlua/0.19.2/rlua/struct.Lua.html#method.unsafe_new_with\n\
+            and also Lua's documentation of the debug library here: https://www.lua.org/pil/23.html\n\
+            Allowing the use of the debug library assumes you understand the risks in doing so.");
         unsafe { lua = rlua::Lua::unsafe_new_with(rlua::StdLib::all()); };
     } else {
         lua = rlua::Lua::new();
