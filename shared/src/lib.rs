@@ -93,6 +93,7 @@ pub enum ServerCommand {
     Chat(String, Option<u32>),
     TransferFile(String),
     SendLua(String),
+    CallEvent(String),
     PlayerInfoUpdate(ClientInfoPublic),
     VehicleMetaUpdate(VehicleMeta),
     PlayerDisconnected(u32),

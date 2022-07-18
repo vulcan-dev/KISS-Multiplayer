@@ -60,6 +60,9 @@ impl Connection {
     pub async fn send_lua(&mut self, lua: String) {
         let _ = self.ordered.send(ServerCommand::SendLua(lua.clone())).await;
     }
+    pub async fn call_event(&mut self, name: String) {
+        let _ = self.ordered.send(ServerCommand::CallEvent(name.clone())).await;
+    }
 }
 
 pub struct Server {

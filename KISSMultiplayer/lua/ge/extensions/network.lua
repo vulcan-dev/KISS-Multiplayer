@@ -12,6 +12,8 @@ local socket = require("socket")
 local messagepack = require("lua/common/libs/Lua-MessagePack/MessagePack")
 local ping_send_time = 0
 
+local registered_events = {}
+
 M.players = {}
 M.socket = socket
 M.base_secret = "None"
@@ -61,6 +63,7 @@ local function disconnect(data)
   M.connection.connected = false
   M.connection.tcp:close()
   M.players = {}
+  registered_events = {}
   kissplayers.players = {}
   kissplayers.player_transforms = {}
   kissplayers.players_in_cars = {}
@@ -127,6 +130,22 @@ local function handle_vehicle_lua(data)
   end
 end
 
+local function call_event(event_name)
+  local event = registered_events[event_name]
+  if event then
+    event()
+  end
+end
+
+local function register_event(event_name, event)
+  if type(event) ~= "function" then
+    print("Server tried setting an event but it was not a function. Event: " .. tostring(event_name))
+    return
+  end
+  
+  registered_events[event_name] = event
+end
+
 local function handle_pong(data)
   local server_time = data
   local local_time = socket.gettime()
@@ -158,6 +177,7 @@ local function onExtensionLoaded()
   message_handlers.Pong = handle_pong
   message_handlers.PlayerDisconnected = handle_player_disconnected
   message_handlers.VehicleLuaCommand = handle_vehicle_lua
+  message_handlers.CallEvent = call_event
   message_handlers.CouplerAttached = vehiclemanager.attach_coupler
   message_handlers.CouplerDetached = vehiclemanager.detach_coupler
   message_handlers.ElectricsUndefinedUpdate = vehiclemanager.electrics_diff_update
@@ -428,5 +448,6 @@ M.send_data = send_data
 M.onUpdate = onUpdate
 M.send_messagepack = send_messagepack
 M.onExtensionLoaded = onExtensionLoaded
+M.register_event = register_event
 
 return M

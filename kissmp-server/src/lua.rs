@@ -11,6 +11,7 @@ use std::sync::mpsc;
 pub enum LuaCommand {
     ChatMessage(u32, String),
     ChatMessageBroadcast(String),
+    CallEvent(u32, String),
     RemoveVehicle(u32),
     ResetVehicle(u32),
     SendLua(u32, String),
@@ -175,6 +176,12 @@ impl rlua::UserData for LuaConnection {
                 .unwrap();
             Ok(())
         });
+        methods.add_method("callEvent", |lua_ctx, this, name: String| {
+            let globals = lua_ctx.globals();
+            let sender: MpscChannelSender = globals.get("MPSC_CHANNEL_SENDER")?;
+            sender.0.send(LuaCommand::CallEvent(this.id, name)).unwrap();
+            Ok(())
+        });
         methods.add_method("kick", |lua_ctx, this, reason: String| {
             let globals = lua_ctx.globals();
             let sender: MpscChannelSender = globals.get("MPSC_CHANNEL_SENDER")?;
@@ -294,6 +301,11 @@ impl Server {
                 }
                 SpawnVehicle(data, owner) => {
                     let _ = self.spawn_vehicle(owner, data);
+                }
+                CallEvent(id, name) => {
+                    if let Some(conn) = self.connections.get_mut(&id) {
+                        conn.call_event(name.clone()).await;
+                    }
                 }
             }
         }
