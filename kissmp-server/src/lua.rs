@@ -11,6 +11,7 @@ use std::sync::mpsc;
 pub enum LuaCommand {
     ChatMessage(u32, String),
     ChatMessageBroadcast(String),
+    HttpRequest(LuaHttpRequest),
     RemoveVehicle(u32),
     ResetVehicle(u32),
     SendLua(u32, String),
@@ -295,6 +296,39 @@ impl Server {
                 SpawnVehicle(data, owner) => {
                     let _ = self.spawn_vehicle(owner, data);
                 }
+                HttpRequest(req ) => {
+                    let url = req.url.clone();
+                    let str_method = req.method.clone();
+                    
+                    let method;
+                    match str_method.as_str() {
+                        "GET" => method = reqwest::Method::GET,
+                        "POST" => method = reqwest::Method::POST,
+                        "PUT" => method = reqwest::Method::PUT,
+                        "DELETE" => method = reqwest::Method::DELETE,
+                        "HEAD" => method = reqwest::Method::HEAD,
+                        "OPTIONS" => method = reqwest::Method::OPTIONS,
+                        "PATCH" => method = reqwest::Method::PATCH,
+                        "TRACE" => method = reqwest::Method::TRACE,
+                        _ => method = reqwest::Method::GET,
+                    }
+
+                    let res = reqwest::Client::new()
+                        .request(method, url)
+                        .body(req.body.clone())
+                        .send()
+                        .await;
+
+                    if let Err(e) = res {
+                        println!("Error sending http request: {}", e);
+                    } else {
+                        let text = res.unwrap().text().await.unwrap();
+
+                        self.lua.context(|lua_ctx| {
+                            let _ = run_hook::<(String, String), ()>(lua_ctx, String::from("HttpRequest"), (req.name.clone(), text.clone()));
+                        });
+                    }
+                }
             }
         }
         self.lua.context(|lua_ctx| {
@@ -354,9 +388,28 @@ impl rlua::UserData for MpscChannelSender {}
 pub fn setup_lua() -> (rlua::Lua, mpsc::Receiver<LuaCommand>) {
     let lua = rlua::Lua::new();
     let (tx, rx) = mpsc::channel();
+    let tx_clone = tx.clone();
     lua.context(|lua_ctx| {
         let globals = lua_ctx.globals();
         let hooks_table = lua_ctx.create_table().unwrap();
+
+        let http_func = lua_ctx
+            .create_function(move |_, (name, url, method, body): (String, String, String, String)| {
+                let req: LuaHttpRequest = LuaHttpRequest {
+                    name: name.clone(),
+                    url: url.clone(),
+                    method: method.clone(),
+                    body: body.clone()
+                };
+
+                tx_clone
+                    .send(LuaCommand::HttpRequest(req))
+                    .unwrap();
+                Ok(())
+            })
+            .unwrap();
+        globals.set("request", http_func).unwrap();
+        
         hooks_table
             .set(
                 "register",

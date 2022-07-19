@@ -62,6 +62,14 @@ impl Connection {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct LuaHttpRequest {
+    pub name: String,
+    pub url: String,
+    pub method: String,
+    pub body: String
+}
+
 pub struct Server {
     connections: HashMap<u32, Connection>,
     vehicles: HashMap<u32, Vehicle>,
