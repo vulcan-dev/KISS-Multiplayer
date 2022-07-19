@@ -89,6 +89,8 @@ local function draw()
       imgui.PushTextWrapPos(0)
       if message.user_name ~= nil then
         local color = imgui.ImVec4(message.user_color[1], message.user_color[2], message.user_color[3], message.user_color[4])
+        imgui.Text("[%s]", message.time)
+        imgui.SameLine()
         imgui.TextColored(color, "%s", (message.user_name:sub(1, 16))..":")
         imgui.SameLine()
       end
@@ -158,6 +160,7 @@ local function add_message(message, color, sent_by)
   end
   local has_color = color ~= nil and type(color) == 'table'
   local message_table = {
+    time = os.date("%X"),
     text = message,
     has_color = has_color,
     user_color = user_color,
