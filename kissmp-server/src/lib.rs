@@ -1,7 +1,7 @@
 #[recursion_limit = "1024"]
 
 use ipnetwork::Ipv4Network;
-use shared::vehicle;
+use shared::{vehicle, MarshalledLuaValue};
 
 pub mod config;
 pub mod events;
@@ -60,8 +60,8 @@ impl Connection {
     pub async fn send_lua(&mut self, lua: String) {
         let _ = self.ordered.send(ServerCommand::SendLua(lua.clone())).await;
     }
-    pub async fn call_event(&mut self, name: String) {
-        let _ = self.ordered.send(ServerCommand::CallEvent(name.clone())).await;
+    pub async fn call_event(&mut self, name: String, parameters: Vec<MarshalledLuaValue>) {
+        let _ = self.ordered.send(ServerCommand::CallEvent(name.clone(), parameters)).await;
     }
 }
 

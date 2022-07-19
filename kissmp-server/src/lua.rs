@@ -3,15 +3,19 @@ Lua is not really designed to be used with rust. And async stuff only makes thin
 This API is probably the best I can do without using unsafe.
 */
 
+use rlua::{Variadic, Value};
+use shared::MarshalledLuaValue;
+
 use crate::server_vehicle::*;
 use crate::*;
+use std::convert::TryFrom;
 use std::sync::mpsc;
 
 #[derive(Clone)]
 pub enum LuaCommand {
     ChatMessage(u32, String),
     ChatMessageBroadcast(String),
-    CallEvent(u32, String),
+    CallEvent(u32, String, Vec<MarshalledLuaValue>),
     RemoveVehicle(u32),
     ResetVehicle(u32),
     SendLua(u32, String),
@@ -176,11 +180,17 @@ impl rlua::UserData for LuaConnection {
                 .unwrap();
             Ok(())
         });
-        methods.add_method("callEvent", |lua_ctx, this, name: String| {
+        methods.add_method("callEvent", |lua_ctx, this, (name, parameters): (String, Variadic<Value>)| {
             let globals = lua_ctx.globals();
             let sender: MpscChannelSender = globals.get("MPSC_CHANNEL_SENDER")?;
-            sender.0.send(LuaCommand::CallEvent(this.id, name)).unwrap();
-            Ok(())
+            let mut params = vec![];
+            for value in parameters {
+                let v = MarshalledLuaValue::try_from(&value);
+                if v.is_err() { return Ok(false) }
+                params.push(v.unwrap())
+            }
+            sender.0.send(LuaCommand::CallEvent(this.id, name, params)).unwrap();
+            Ok(true)
         });
         methods.add_method("kick", |lua_ctx, this, reason: String| {
             let globals = lua_ctx.globals();
@@ -302,9 +312,9 @@ impl Server {
                 SpawnVehicle(data, owner) => {
                     let _ = self.spawn_vehicle(owner, data);
                 }
-                CallEvent(id, name) => {
+                CallEvent(id, name, parameters) => {
                     if let Some(conn) = self.connections.get_mut(&id) {
-                        conn.call_event(name.clone()).await;
+                        conn.call_event(name.clone(), parameters).await;
                     }
                 }
             }

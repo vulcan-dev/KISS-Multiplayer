@@ -130,16 +130,26 @@ local function handle_vehicle_lua(data)
   end
 end
 
-local function call_event(event_name)
+local function call_event(data)
+  local event_name = data[1]
+  local parameters = data[2]
   local event = registered_events[event_name]
   if event then
-    event()
+    event(table.unpack(parameters))
   end
 end
 
+--[[
+  TODO: Add a function to remove events
+    TODO: Deregister events on disconnect
+  TODO: Consider an array of functions for a event name
+    This could be done á la setInterval in JavaScript where a returned ID
+    removes the handler, or like removeEventListener where giving the handling
+    function removes it.
+]] 
 local function register_event(event_name, event)
   if type(event) ~= "function" then
-    print("Server tried setting an event but it was not a function. Event: " .. tostring(event_name))
+    print("Client tried to register a server event but it was not a function. Event: " .. tostring(event_name))
     return
   end
   

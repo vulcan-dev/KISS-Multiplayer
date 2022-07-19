@@ -1,9 +1,10 @@
 extern crate pretty_env_logger;
 
 pub mod vehicle;
+use rlua::{Value, prelude::LuaError};
 use serde::{Deserialize, Serialize};
 use vehicle::*;
-use std::io::Write;
+use std::{io::Write, convert::{TryFrom}, hash::Hash, fmt::{Display, Debug}};
 use chrono::Local;
 pub use log::{info, warn, error};
 
@@ -93,7 +94,7 @@ pub enum ServerCommand {
     Chat(String, Option<u32>),
     TransferFile(String),
     SendLua(String),
-    CallEvent(String),
+    CallEvent(String, Vec<MarshalledLuaValue>),
     PlayerInfoUpdate(ClientInfoPublic),
     VehicleMetaUpdate(VehicleMeta),
     PlayerDisconnected(u32),
@@ -105,6 +106,80 @@ pub enum ServerCommand {
     FilePart(String, Vec<u8>, u32, u32, u32),
     VoiceChatPacket(u32, [f32; 3], Vec<u8>),
     Pong(f64),
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MarshalledLuaValue {
+    Nil,
+    Boolean(bool),
+    Integer(i64),
+    Number(Float64),
+    String(String)
+    // Tables were considered, but marshalling it is far too complex.
+    // (Hashing, are we pointing to the same table, other pitfalls)
+    // Ergo—for sanity—we will not marshall tables. _For Now™_
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Float64(f64);
+
+impl Hash for Float64 {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state)
+    }
+}
+
+impl PartialEq for Float64 {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bits() == other.0.to_bits()
+    }
+}
+
+impl Eq for Float64 {}
+
+pub enum MarshalledLuaValueConversionError {
+    UnsupportedType,
+    LuaError(LuaError)
+}
+
+impl Display for MarshalledLuaValueConversionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use MarshalledLuaValueConversionError as E;
+        match self {
+            E::UnsupportedType => write!(f, "The value provided is not supported"),
+            E::LuaError(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl Debug for MarshalledLuaValueConversionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedType => write!(f, "UnsupportedType"),
+            Self::LuaError(arg0) => f.debug_tuple("LuaError").field(arg0).finish(),
+        }
+    }
+}
+
+impl From<LuaError> for MarshalledLuaValueConversionError {
+    fn from(e: LuaError) -> Self { Self::LuaError(e) }
+}
+
+impl TryFrom<&Value<'_>> for MarshalledLuaValue {
+    type Error = MarshalledLuaValueConversionError;
+
+    fn try_from(value: &Value) -> Result<Self, MarshalledLuaValueConversionError> {
+        use MarshalledLuaValue as M;
+        Ok(match value {
+            Value::Nil =>                     {M::Nil},
+            Value::Boolean(boolean) => {M::Boolean(boolean.to_owned())},
+            Value::Integer(integer) =>  {M::Integer(integer.to_owned())},
+            Value::Number(number) =>    {M::Number(Float64(number.to_owned()))},
+            Value::String(string) => {M::String(string.to_str()?.to_owned())},
+            _ => {Err(MarshalledLuaValueConversionError::UnsupportedType)?}
+        })
+    }
 }
 
 pub fn init_logging()
