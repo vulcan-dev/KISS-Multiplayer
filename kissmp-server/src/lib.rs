@@ -10,6 +10,7 @@ pub mod incoming;
 pub mod lua;
 pub mod outgoing;
 pub mod server_vehicle;
+mod http_task;
 
 use incoming::IncomingEvent;
 use server_vehicle::*;
@@ -62,14 +63,6 @@ impl Connection {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct LuaHttpRequest {
-    pub name: String,
-    pub url: String,
-    pub method: String,
-    pub body: String
-}
-
 pub struct Server {
     connections: HashMap<u32, Connection>,
     vehicles: HashMap<u32, Vehicle>,
@@ -88,6 +81,7 @@ pub struct Server {
     lua_watcher: notify::RecommendedWatcher,
     lua_watcher_rx: std::sync::mpsc::Receiver<notify::DebouncedEvent>,
     lua_commands: std::sync::mpsc::Receiver<lua::LuaCommand>,
+    http_channel: Option<http_task::HttpChannel>,
     server_identifier: String,
     upnp_enabled: bool,
     upnp_port: Option<u16>,
@@ -120,6 +114,7 @@ impl Server {
             lua_watcher,
             lua_watcher_rx: watcher_rx,
             lua_commands: receiver,
+            http_channel: None,
             server_identifier: config.server_identifier,
             upnp_enabled: config.upnp_enabled,
             public_address: None,
@@ -207,35 +202,49 @@ impl Server {
                 is_upnp: self.upnp_port.is_some()
             });
         }
-        'main: loop {
-            select! {
-                _ = ticks.next() => {
-                    self.tick().await;
-                },
-                _ = send_info_ticks.next() => {
-                    let _ = self.send_server_info().await;
-                    self.send_players_info().await;
+        let http_task::HttpTask {
+            handle: http_handle,
+            channel: http_channel
+        } = http_task::HttpTask::new();
+
+        self.http_channel = Some(http_channel);
+
+        select!{
+            _ = async {
+                if let Err(join_error) = http_handle.await {
+                    error!("Could not start HTTP task: {}", join_error);
                 }
-                conn = incoming.select_next_some() => {
-                    if let Ok(conn) = conn {
-                        if let Err(e) = self.on_connect(conn, client_events_tx.clone()).await {
-                            warn!("Client has failed to connect to the server");
+            }.fuse() => {},
+            _ = async { 'main: loop {
+                select! {
+                    _ = ticks.next() => {
+                        self.tick().await;
+                    },
+                    _ = send_info_ticks.next() => {
+                        let _ = self.send_server_info().await;
+                        self.send_players_info().await;
+                    }
+                    conn = incoming.select_next_some() => {
+                        if let Ok(conn) = conn {
+                            if let Err(e) = self.on_connect(conn, client_events_tx.clone()).await {
+                                warn!("Client has failed to connect to the server");
+                            }
                         }
-                    }
-                },
-                stdin_input = reader.next() => {
-                    if let Some(stdin_input) = stdin_input {
-                        self.on_console_input(stdin_input.unwrap_or(String::from(""))).await;
-                    }
-                },
-                e = client_events_rx.select_next_some() => {
-                    self.on_client_event(e.0, e.1).await;
-                },
-                _ = destroyer => {
-                    info!("Server shutdown requested. Shutting down");
-                    break 'main;
-                },
-            }
+                    },
+                    stdin_input = reader.next() => {
+                        if let Some(stdin_input) = stdin_input {
+                            self.on_console_input(stdin_input.unwrap_or(String::from(""))).await;
+                        }
+                    },
+                    e = client_events_rx.select_next_some() => {
+                        self.on_client_event(e.0, e.1).await;
+                    },
+                    _ = destroyer => {
+                        info!("Server shutdown requested. Shutting down");
+                        break 'main;
+                    },
+                }
+            }}.fuse() => {}
         }
     }
     async fn send_players_info(&mut self) {
