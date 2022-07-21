@@ -11,7 +11,7 @@ use std::sync::mpsc;
 pub enum LuaCommand {
     ChatMessage(u32, String),
     ChatMessageBroadcast(String),
-    HttpRequest(LuaHttpRequest),
+    HttpRequest(http_task::HttpRequest),
     RemoveVehicle(u32),
     ResetVehicle(u32),
     SendLua(u32, String),
@@ -297,40 +297,32 @@ impl Server {
                     let _ = self.spawn_vehicle(owner, data);
                 }
                 HttpRequest(req ) => {
-                    let url = req.url.clone();
-                    let str_method = req.method.clone();
-                    
-                    let method;
-                    match str_method.as_str() {
-                        "GET" => method = reqwest::Method::GET,
-                        "POST" => method = reqwest::Method::POST,
-                        "PUT" => method = reqwest::Method::PUT,
-                        "DELETE" => method = reqwest::Method::DELETE,
-                        "HEAD" => method = reqwest::Method::HEAD,
-                        "OPTIONS" => method = reqwest::Method::OPTIONS,
-                        "PATCH" => method = reqwest::Method::PATCH,
-                        "TRACE" => method = reqwest::Method::TRACE,
-                        _ => method = reqwest::Method::GET,
-                    }
-
-                    let res = reqwest::Client::new()
-                        .request(method, url)
-                        .body(req.body.clone())
-                        .send()
-                        .await;
-
-                    if let Err(e) = res {
-                        println!("Error sending http request: {}", e);
+                    if let Some(http_channel) = &self.http_channel {
+                        let _ = http_channel
+                            .requests.send(req);
                     } else {
-                        let text = res.unwrap().text().await.unwrap();
-
-                        self.lua.context(|lua_ctx| {
-                            let _ = run_hook::<(String, String), ()>(lua_ctx, String::from("HttpRequest"), (req.name.clone(), text.clone()));
-                        });
+                        warn!("HTTP disabled.")
                     }
                 }
             }
         }
+
+        if let Some(http_channel) = self.http_channel.as_mut() {
+            while let Ok(res) = http_channel.responses.try_recv() {
+                if let Err(e) = res.response {
+                    println!("Error sending http request: {}", e);
+                } else {
+                    // TODO: Handle errors without panicking
+                    let text = res.response.unwrap().text().await.unwrap();
+                    let tag = res.tag;
+
+                    self.lua.context(|lua_ctx| {
+                        let _ = run_hook::<(String, String), ()>(lua_ctx, String::from("HttpRequest"), (tag, text));
+                    });
+                }
+            }
+        }
+
         self.lua.context(|lua_ctx| {
             let _ = run_hook::<(), ()>(lua_ctx, String::from("Tick"), ());
         });
@@ -392,14 +384,25 @@ pub fn setup_lua() -> (rlua::Lua, mpsc::Receiver<LuaCommand>) {
     lua.context(|lua_ctx| {
         let globals = lua_ctx.globals();
         let hooks_table = lua_ctx.create_table().unwrap();
+        // TODO: Callback table?
 
         let http_func = lua_ctx
             .create_function(move |_, (name, url, method, body): (String, String, String, String)| {
-                let req: LuaHttpRequest = LuaHttpRequest {
-                    name: name.clone(),
-                    url: url.clone(),
-                    method: method.clone(),
-                    body: body.clone()
+                let req = http_task::HttpRequest {
+                    tag: name,
+                    method: match method.as_str() {
+                        "GET" => reqwest::Method::GET,
+                        "POST" => reqwest::Method::POST,
+                        "PUT" => reqwest::Method::PUT,
+                        "DELETE" => reqwest::Method::DELETE,
+                        "HEAD" => reqwest::Method::HEAD,
+                        "OPTIONS" => reqwest::Method::OPTIONS,
+                        "PATCH" => reqwest::Method::PATCH,
+                        "TRACE" => reqwest::Method::TRACE,
+                        _ => reqwest::Method::GET,
+                    },
+                    url,
+                    body,
                 };
 
                 tx_clone
