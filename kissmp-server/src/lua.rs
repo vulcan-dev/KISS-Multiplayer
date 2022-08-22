@@ -352,7 +352,7 @@ pub struct MpscChannelSender(mpsc::Sender<LuaCommand>);
 impl rlua::UserData for MpscChannelSender {}
 
 pub fn setup_lua() -> (rlua::Lua, mpsc::Receiver<LuaCommand>) {
-    let lua = rlua::Lua::new();
+    let lua = unsafe { rlua::Lua::unsafe_new_with_flags(rlua::StdLib::ALL, rlua::InitFlags::LOAD_WRAPPERS) };
     let (tx, rx) = mpsc::channel();
     lua.context(|lua_ctx| {
         let globals = lua_ctx.globals();
