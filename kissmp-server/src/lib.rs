@@ -179,7 +179,7 @@ impl Server {
         let (client_events_tx, client_events_rx) = mpsc::channel(128);
         let mut client_events_rx = ReceiverStream::new(client_events_rx).fuse();
         let mut incoming = incoming
-            .inspect(|_conn| info!("Client is trying to connect to the server"))
+            // .inspect(|_conn| info!("Client is trying to connect to the server"))
             .buffer_unordered(16);
 
         let stdin = tokio::io::stdin();
@@ -282,7 +282,8 @@ impl Server {
             return Err(anyhow::Error::msg("Server is full"));
         }
         // Should be strong enough for our targets. TODO: Check for collisions anyway
-        let id = rand::random::<u32>();
+        // let id = rand::random::<u32>();
+        let id = self.connections.len() as u32 + 1;
         let (ordered_tx, ordered_rx) = mpsc::channel(128);
         let (unreliable_tx, unreliable_rx) = mpsc::channel(128);
         async fn receive_client_data(
@@ -290,7 +291,7 @@ impl Server {
         ) -> anyhow::Result<ClientInfoPrivate> {
             let mut stream = new_connection.uni_streams.try_next().await?;
             if let Some(stream) = &mut stream {
-                info!("Attempting to receive client info...");
+                // info!("Attempting to receive client info...");
                 let mut buf = [0; 4];
                 stream.read_exact(&mut buf[0..4]).await?;
                 let len = u32::from_le_bytes(buf).min(16384) as usize;
