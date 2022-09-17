@@ -34,11 +34,11 @@ impl Server {
                         .send(ServerCommand::PlayerInfoUpdate(info))
                         .await;
                 }
-                for (_, client) in &mut self.connections {
-                    client
-                        .send_chat_message(format!("Player {} has joined the server", player_name))
-                        .await;
-                }
+                // for (_, client) in &mut self.connections {
+                //     client
+                //         .send_chat_message(format!("Player {} has joined the server", player_name))
+                //         .await;
+                // }
                 let _ = self.update_lua_connections();
                 self.lua.context(|lua_ctx| {
                     let _ = crate::lua::run_hook::<u32, ()>(
@@ -68,9 +68,9 @@ impl Server {
                     }
                 }
                 for (_, client) in &mut self.connections {
-                    client
-                        .send_chat_message(format!("Player {} has left the server", player_name))
-                        .await;
+                    // client
+                    //     .send_chat_message(format!("Player {} has left the server", player_name))
+                    //     .await;
                     let _ = client
                         .ordered
                         .send(ServerCommand::PlayerDisconnected(client_id))
