@@ -84,7 +84,6 @@ impl Server {
                         client_id,
                     );
                 });
-                info!("Client has disconnected from the server");
             }
             ClientCommand(command) => {
                 match command {
